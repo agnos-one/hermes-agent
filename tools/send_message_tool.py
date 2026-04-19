@@ -399,7 +399,6 @@ async def _send_to_platform(platform, pconfig, chat_id, message, thread_id=None,
     from gateway.config import Platform
     from gateway.platforms.base import BasePlatformAdapter, utf16_len
     from gateway.platforms.discord import DiscordAdapter
-    from gateway.platforms.slack import SlackAdapter
 
     # Telegram adapter import is optional (requires python-telegram-bot)
     try:
@@ -417,18 +416,10 @@ async def _send_to_platform(platform, pconfig, chat_id, message, thread_id=None,
 
     media_files = media_files or []
 
-    if platform == Platform.SLACK and message:
-        try:
-            slack_adapter = SlackAdapter.__new__(SlackAdapter)
-            message = slack_adapter.format_message(message)
-        except Exception:
-            logger.debug("Failed to apply Slack mrkdwn formatting in _send_to_platform", exc_info=True)
-
     # Platform message length limits (from adapter class attributes)
     _MAX_LENGTHS = {
         Platform.TELEGRAM: TelegramAdapter.MAX_MESSAGE_LENGTH if _telegram_available else 4096,
         Platform.DISCORD: DiscordAdapter.MAX_MESSAGE_LENGTH,
-        Platform.SLACK: SlackAdapter.MAX_MESSAGE_LENGTH,
     }
     if _feishu_available:
         _MAX_LENGTHS[Platform.FEISHU] = FeishuAdapter.MAX_MESSAGE_LENGTH
@@ -919,8 +910,12 @@ async def _send_slack(token, chat_id, message):
         _sess_kw, _req_kw = proxy_kwargs_for_aiohttp(_proxy)
         url = "https://slack.com/api/chat.postMessage"
         headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+        payload = {
+            "channel": chat_id,
+            "text": message,
+            "blocks": [{"type": "markdown", "text": message}],
+        }
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30), **_sess_kw) as session:
-            payload = {"channel": chat_id, "text": message, "mrkdwn": True}
             async with session.post(url, headers=headers, json=payload, **_req_kw) as resp:
                 data = await resp.json()
                 if data.get("ok"):

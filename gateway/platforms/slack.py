@@ -77,7 +77,9 @@ class SlackAdapter(BasePlatformAdapter):
       - Typing indicators (not natively supported by Slack bots)
     """
 
-    MAX_MESSAGE_LENGTH = 39000  # Slack API allows 40,000 chars; leave margin
+    # Slack's native "markdown" block text field is capped at ~12,000 chars
+    # per block; leave headroom for chunk indicators and fence-reopen prefixes.
+    MAX_MESSAGE_LENGTH = 11800
 
     def __init__(self, config: PlatformConfig):
         super().__init__(config, Platform.SLACK)
@@ -261,32 +263,27 @@ class SlackAdapter(BasePlatformAdapter):
             return SendResult(success=False, error="Not connected")
 
         try:
-            # Convert standard markdown → Slack mrkdwn
-            formatted = self.format_message(content)
-
-            # Split long messages, preserving code block boundaries
-            chunks = self.truncate_message(formatted, self.MAX_MESSAGE_LENGTH)
-
+            # Raw Markdown is delivered via the "markdown" block, which parses
+            # standard Markdown server-side. No in-adapter chunking — table /
+            # code / list rendering can break across programmatic splits, so
+            # we rely on the LLM to emit appropriately-sized messages.
             thread_ts = self._resolve_thread_ts(reply_to, metadata)
-            last_result = None
 
             # reply_broadcast: also post thread replies to the main channel.
             # Controlled via platform config: gateway.slack.reply_broadcast
             broadcast = self.config.extra.get("reply_broadcast", False)
 
-            for i, chunk in enumerate(chunks):
-                kwargs = {
-                    "channel": chat_id,
-                    "text": chunk,
-                    "mrkdwn": True,
-                }
-                if thread_ts:
-                    kwargs["thread_ts"] = thread_ts
-                    # Only broadcast the first chunk of the first reply
-                    if broadcast and i == 0:
-                        kwargs["reply_broadcast"] = True
+            kwargs = {
+                "channel": chat_id,
+                "text": content,
+                "blocks": [{"type": "markdown", "text": content}],
+            }
+            if thread_ts:
+                kwargs["thread_ts"] = thread_ts
+                if broadcast:
+                    kwargs["reply_broadcast"] = True
 
-                last_result = await self._get_client(chat_id).chat_postMessage(**kwargs)
+            last_result = await self._get_client(chat_id).chat_postMessage(**kwargs)
 
             # Track the sent message ts so we can auto-respond to thread
             # replies without requiring @mention.
@@ -321,11 +318,11 @@ class SlackAdapter(BasePlatformAdapter):
         if not self._app:
             return SendResult(success=False, error="Not connected")
         try:
-            formatted = self.format_message(content)
             await self._get_client(chat_id).chat_update(
                 channel=chat_id,
                 ts=message_id,
-                text=formatted,
+                text=content,
+                blocks=[{"type": "markdown", "text": content}],
             )
             return SendResult(success=True, message_id=message_id)
         except Exception as e:  # pragma: no cover - defensive logging
