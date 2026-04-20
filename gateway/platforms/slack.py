@@ -1002,7 +1002,7 @@ class SlackAdapter(BasePlatformAdapter):
         channel_type = event.get("channel_type", "")
         if not channel_type and channel_id.startswith("D"):
             channel_type = "im"
-        is_dm = channel_type in ("im", "mpim")  # Both 1:1 and group DMs
+        is_dm = channel_type in ("im",)  # Only 1:1 DMs, no group DMs
 
         # Build thread_ts for session keying.
         # In channels: fall back to ts so each top-level @mention starts a

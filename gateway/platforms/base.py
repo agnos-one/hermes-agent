@@ -1746,6 +1746,10 @@ class BasePlatformAdapter(ABC):
                 response = None
             if not response:
                 logger.debug("[%s] Handler returned empty/None response for %s", self.name, event.source.chat_id)
+            if response and response.strip() == "!SKIP_RESPONSE":
+                logger.debug("[%s] SKIP_RESPONSE flag detected — suppressing reply for %s", self.name, event.source.chat_id)
+                response = None
+
             if response:
                 # Extract MEDIA:<path> tags (from TTS tool) before other processing
                 media_files, response = self.extract_media(response)
